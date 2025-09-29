@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Forex Market Sessions Clock</title>
+  <style>
+    body {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      background: #111;
+      color: white;
+      font-family: Arial, sans-serif;
+      position: relative;
+    }
+    canvas {
+      background: #222;
+      border-radius: 50%;
+      margin-bottom: 20px;
+    }
+    #digital-time {
+      margin: 10px;
+      font-size: 18px;
+      text-align: center;
+    }
+    #tooltip {
+      position: absolute;
+      padding: 6px 10px;
+      background: rgba(0,0,0,0.8);
+      color: white;
+      font-size: 14px;
+      border-radius: 6px;
+      pointer-events: none;
+      display: none;
+      white-space: pre-line;
+    }
+    button {
+      background: #333;
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      margin: 0 5px;
+    }
+    button:hover {
+      background: #555;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="clock" width="500" height="500"></canvas>
+  <div id="tooltip"></div>
+  <div id="digital-time"></div>
+  <div>
+    <button onclick="setOffset(3)">Kenya (GMT+3)</button>
+    <button onclick="setOffset(2)">Rwanda (GMT+2)</button>
+    <button onclick="setOffset(0)">GMT (0)</button>
+  </div>
+
+  <script>
+    const canvas = document.getElementById("clock");
+    const ctx = canvas.getContext("2d");
+    const radius = canvas.width / 2;
+
+    const digitalTime = document.getElementById("digital-time");
+    const tooltip = document.getElementById("tooltip");
+
+    const sessions = [
+      { name: "Sydney", start: 22, end: 7, color: "skyblue" },
+      { name: "Tokyo", start: 0, end: 9, color: "orange" },
+      { name: "London", start: 8, end: 17, color: "green" },
+      { name: "New York", start: 13, end: 22, color: "red" },
+    ];
+
+    let localOffset = 3;
+    let sessionArcs = [];
+
+    function setOffset(offset) {
+      localOffset = offset;
+    }
+
+    function drawClock() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.save();
+      ctx.translate(radius, radius);
+      sessionArcs = [];
+
+      ctx.beginPath();
+      ctx.arc(0, 0, radius - 10, 0, 2 * Math.PI);
+      ctx.fillStyle = "#333";
+      ctx.fill();
+
+      sessions.forEach(s => drawSession(s));
+
+      for (let h = 0; h < 24; h++) {
+        let angle = (Math.PI * 2 * h) / 24 - Math.PI / 2;
+        let x1 = (radius - 20) * Math.cos(angle);
+        let y1 = (radius - 20) * Math.sin(angle);
+        let x2 = (radius - 10) * Math.cos(angle);
+        let y2 = (radius - 10) * Math.sin(angle);
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.strokeStyle = "white";
+        ctx.stroke();
+
+        if (h % 3 === 0) {
+          let lx = (radius - 40) * Math.cos(angle);
+          let ly = (radius - 40) * Math.sin(angle);
+          ctx.fillStyle = "white";
+          ctx.font = "14px Arial";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(h.toString(), lx, ly);
+        }
+      }
+
+      drawHands();
+      ctx.restore();
+    }
+
+    function drawSession(s) {
+      let startAngle = (Math.PI * 2 * s.start) / 24 - Math.PI / 2;
+      let endAngle = (Math.PI * 2 * s.end) / 24 - Math.PI / 2;
+
+      const now = new Date();
+      const gmtHours = now.getUTCHours();
+      const active = isActiveSession(gmtHours, s.start, s.end);
+
+      if (s.start < s.end) {
+        sessionArcs.push({ ...s, startAngle, endAngle });
+      } else {
+        // Split Sydney into two arcs so tooltip detection works on both sides
+        sessionArcs.push({ ...s, startAngle, endAngle: Math.PI * 1.5 });
+        sessionArcs.push({ ...s, startAngle: -Math.PI / 2, endAngle });
+      }
+
+      ctx.beginPath();
+      if (s.start < s.end) {
+        ctx.arc(0, 0, radius - 30, startAngle, endAngle);
+      } else {
+        ctx.arc(0, 0, radius - 30, startAngle, Math.PI * 1.5);
+        ctx.arc(0, 0, radius - 30, -Math.PI / 2, endAngle);
+      }
+
+      ctx.strokeStyle = s.color;
+      ctx.lineWidth = active ? 28 : 20;
+      ctx.shadowBlur = active ? 20 : 0;
+      ctx.shadowColor = s.color;
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
+
+    function isActiveSession(hour, start, end) {
+      if (start < end) {
+        return hour >= start && hour < end;
+      } else {
+        return hour >= start || hour < end;
+      }
+    }
+
+    function drawHands() {
+      const now = new Date();
+      const gmtHours = now.getUTCHours();
+      const gmtMinutes = now.getUTCMinutes();
+      const gmtSeconds = now.getUTCSeconds();
+
+      drawHand(gmtHours + gmtMinutes / 60, "yellow", radius - 60, 6);
+      const localHours = (gmtHours + localOffset + 24) % 24;
+      drawHand(localHours + gmtMinutes / 60, "cyan", radius - 80, 4);
+      drawSecondHand(gmtSeconds);
+
+      ctx.beginPath();
+      ctx.arc(0, 0, 6, 0, 2 * Math.PI);
+      ctx.fillStyle = "white";
+      ctx.fill();
+
+      updateDigitalTime(gmtHours, gmtMinutes, gmtSeconds, localHours);
+    }
+
+    function drawHand(hourFraction, color, length, width) {
+      let angle = (Math.PI * 2 * hourFraction) / 24 - Math.PI / 2;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(length * Math.cos(angle), length * Math.sin(angle));
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width;
+      ctx.stroke();
+    }
+
+    function drawSecondHand(seconds) {
+      let angle = (Math.PI * 2 * seconds) / 60 - Math.PI / 2;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo((radius - 90) * Math.cos(angle), (radius - 90) * Math.sin(angle));
+      ctx.strokeStyle = "red";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
+    function updateDigitalTime(gmtHours, gmtMinutes, gmtSeconds, localHours) {
+      function pad(n) { return n < 10 ? "0" + n : n; }
+      digitalTime.innerHTML = `
+        <b>GMT:</b> ${pad(gmtHours)}:${pad(gmtMinutes)}:${pad(gmtSeconds)}<br>
+        <b>Local (GMT+${localOffset}):</b> ${pad(localHours)}:${pad(gmtMinutes)}:${pad(gmtSeconds)}
+      `;
+    }
+
+    canvas.addEventListener("mousemove", function (e) {
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left - radius;
+      const y = e.clientY - rect.top - radius;
+      const angle = Math.atan2(y, x);
+      let hovered = false;
+
+      sessionArcs.forEach(s => {
+        const dist = Math.sqrt(x * x + y * y);
+        if (dist > radius - 40 && dist < radius - 20) {
+          let start = s.startAngle;
+          let end = s.endAngle;
+          // Normalize angles for detection
+          let a = angle < -Math.PI/2 ? angle + 2*Math.PI : angle;
+          let sa = start < -Math.PI/2 ? start + 2*Math.PI : start;
+          let ea = end < -Math.PI/2 ? end + 2*Math.PI : end;
+
+          if (a >= sa && a <= ea) {
+            hovered = true;
+            tooltip.style.display = "block";
+            tooltip.style.left = e.pageX + 10 + "px";
+            tooltip.style.top = e.pageY + 10 + "px";
+            tooltip.innerText = `${s.name} Session\nGMT: ${s.start}:00 - ${s.end}:00`;
+          }
+        }
+      });
+
+      if (!hovered) tooltip.style.display = "none";
+    });
+
+    setInterval(drawClock, 1000);
+  </script>
+</body>
+</html>
